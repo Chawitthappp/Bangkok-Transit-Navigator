@@ -64,11 +64,27 @@ svg text{font:600 11px var(--f);fill:var(--lbl);paint-order:stroke;stroke:var(--
 .legend i{display:inline-block;width:22px;height:6px;border-radius:3px;margin-right:6px;vertical-align:middle}
 .foot{font-size:.78rem;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .foot label{cursor:pointer;color:var(--pri);font-weight:700}
+
+/* ===== Add CSS for Marquee ===== */
+@keyframes marquee {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.scroll-text {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 8s linear infinite; /* Adjust speed here (8s) */
+}
+.scroll-container {
+  overflow: hidden;
+  max-width: 250px; /* Limit width to prevent text from overflowing */
+}
 </style>
 </head>
 <body>
 <header class="hero">
-  <div class="brand"><div class="logo">🚇</div><div><h1>Bangkok Transit Navigator</h1><p data-i="sub"></p></div></div>
+  <!-- ===== Edit HTML here by adding scroll-container and scroll-text classes ===== -->
+  <div class="brand"><div class="logo">🚇</div><div class="scroll-container"><h1 class="scroll-text">Bangkok Transit Navigator</h1><p data-i="sub"></p></div></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1"><button type="button" class="pill" id="lang" style="border:0;color:#fff;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700">EN</button><div class="pill" id="status">…</div></div>
 </header>
 
@@ -207,7 +223,7 @@ N9,Ha Yaek Lat Phrao,BL13,Phahon Yothin,Interchange Connection,Interchange Link 
 S12,Bang Wa,BL33,Bang Wa,Interchange Connection,Interchange Link (BTS Silom <-> MRT Blue)
 BL09,Tao Poon,PP16,Tao Poon,Interchange Connection,Interchange Link (MRT Blue <-> MRT Purple)</script>
 <script>
-// ===== 1. Min-Heap Priority Queue (เขียนเอง) =====
+// ===== 1. Min-Heap Priority Queue (Hand-written) =====
 class PQ {
   constructor(cmp) { this.h = []; this.c = cmp; }
   get size() { return this.h.length; }
@@ -232,8 +248,8 @@ class PQ {
   }
 }
 
-// ===== 2. CSV -> Graph (Adjacency List, Vertex = รหัสสถานี) =====
-const RIDE = 2.5, WALK = 5, SIAM = 3;   // นาที: นั่งรถ / เดินเปลี่ยนสายข้ามสถานี / เปลี่ยนชานชาลาที่สยาม
+// ===== 2. CSV -> Graph (Adjacency List, Vertex = Station Code) =====
+const RIDE = 2.5, WALK = 5, SIAM = 3;   // Minutes: Ride / Interchange walk / Siam platform change
 function parseCSV(t) {
   const rows = []; let r = [], c = '', q = false;
   for (let i = 0; i < t.length; i++) {
@@ -256,21 +272,21 @@ function buildGraph(text) {
     const [a, an, b, bn, type, ctx] = raw.map(x => x.trim());
     G.names.set(a, an); G.names.set(b, bn);
     if (type === 'Line Track') {
-      const ln = ctx.replace(/ Branch$/, '');            // สายแยกของสายสีน้ำเงิน = สายเดียวกัน ไม่คิดเป็นการเปลี่ยนสาย
+      const ln = ctx.replace(/ Branch$/, '');            // Blue Line branch = same line, no transfer penalty
       for (const c of [a, b]) { if (!G.lines.has(c)) G.lines.set(c, new Set()); G.lines.get(c).add(ln); }
       const k = [a, b].sort().join('|') + ln; if (seen.has(k)) continue; seen.add(k);
       add(a, { to: b, line: ln, cost: RIDE, kind: 'ride' }); add(b, { to: a, line: ln, cost: RIDE, kind: 'ride' });
     } else links.push([a, b]);
   }
   for (const [a, b] of links) {
-    if (!G.lines.has(a) || !G.lines.has(b)) { G.skipped.add(G.lines.has(a) ? b : a); continue; }  // เช่น PP16 (ไม่มีสายสีม่วงในข้อมูล)
-    if (a === b) G.plat.set(a, SIAM);                     // Siam Gotcha: รหัสเดียวกัน แต่ต้องเสียเวลาข้ามชานชาลา
+    if (!G.lines.has(a) || !G.lines.has(b)) { G.skipped.add(G.lines.has(a) ? b : a); continue; }  // e.g., PP16 (no Purple line in data)
+    if (a === b) G.plat.set(a, SIAM);                     // Siam Gotcha: Same code, but takes time to cross platform
     else { add(a, { to: b, cost: WALK, kind: 'walk' }); add(b, { to: a, cost: WALK, kind: 'walk' }); }
   }
   return G;
 }
 
-// ===== 3. Dijkstra บนสถานะ (สถานี, สาย) =====
+// ===== 3. Dijkstra on state (Station, Line) =====
 function findRoute(starts, ends, mode) {
   const fewest = mode === 'fewest';
   const cmp = fewest ? (a, b) => a.tr - b.tr || a.t - b.t : (a, b) => a.t - b.t || a.tr - b.tr;
@@ -282,19 +298,19 @@ function findRoute(starts, ends, mode) {
   for (const s of starts) for (const l of G.lines.get(s)) relax(s, l, 0, 0, null, 'start', 0);
   while (pq.size) {
     const u = pq.pop();
-    if (dist.get(u.c + '|' + u.l) !== u) continue;        // ข้ามข้อมูลเก่าในคิว
+    if (dist.get(u.c + '|' + u.l) !== u) continue;        // Skip outdated data in queue
     if (ends.includes(u.c)) { const p = []; for (let n = u; n; n = n.prev) p.push(n); return { t: u.t, tr: u.tr, path: p.reverse() }; }
     for (const e of G.adj.get(u.c) || []) {
       if (e.kind === 'ride') { if (e.line === u.l) relax(e.to, u.l, u.t + e.cost, u.tr, u, 'ride', e.cost); }
       else for (const l of G.lines.get(e.to)) relax(e.to, l, u.t + e.cost, u.tr + 1, u, 'walk', e.cost);
     }
-    const pc = G.plat.get(u.c) ?? WALK;                   // เปลี่ยนสายในสถานีเดียวกัน ต้องมีต้นทุนเสมอ (ไม่ใช่ 0)
+    const pc = G.plat.get(u.c) ?? WALK;                   // In-station transfer always incurs a cost (not 0)
     for (const l of G.lines.get(u.c)) if (l !== u.l) relax(u.c, l, u.t + pc, u.tr + 1, u, 'platform', pc);
   }
   return null;
 }
 
-// ===== i18n (ไทย / English) =====
+// ===== i18n (Thai / English) =====
 const D = {
   th: { now: 'ตอนนี้', sub: 'ค้นหาเส้นทาง BTS · MRT ด้วย Dijkstra และ Priority Queue ที่เขียนเอง', plan: 'วางแผนการเดินทาง', from: 'ต้นทาง', to: 'ปลายทาง', tmode: 'โหมดเวลา', depart: 'ออกเดินทางเวลา', arrive: 'ต้องถึงภายใน', time: 'เวลา', omode: 'รูปแบบเส้นทาง', fastest: '⚡ เร็วที่สุด', fewest: '🔁 เปลี่ยนสายน้อยสุด', go: 'ค้นหาเส้นทาง', mapTitle: 'แผนที่เครือข่ายรถไฟฟ้า', loadCsv: '📂 โหลดไฟล์ CSV อื่น', swap: 'สลับต้นทาง/ปลายทาง',
     status: (r, n) => `CSV ${r} แถว · ${n} สถานี`, note: (a, b, c) => `ค่าน้ำหนัก: นั่งรถ ${a} นาที/สถานี · เดินเปลี่ยนสาย ${b} นาที · เปลี่ยนที่สยาม ${c} นาที`, skip: s => ` · ข้ามจุดเชื่อม ${s} (ไม่มีสายในข้อมูล)`,
@@ -311,7 +327,7 @@ let lang = 'th', lastRes = null;
 try { lang = localStorage.getItem('lang') || 'th'; } catch (e) {}
 const t = (k, ...a) => { const v = D[lang][k]; return typeof v === 'function' ? v(...a) : v; };
 
-// ===== 4. UI + แผนที่ =====
+// ===== 4. UI + Map =====
 const $ = id => document.getElementById(id);
 const COL = { 'BTS Sukhumvit Line': '#7ac142', 'BTS Silom Line': '#00796b', 'MRT Blue Line': '#1e5bb8' };
 const col = l => COL[l] || '#9333ea';
@@ -323,7 +339,7 @@ const LAYOUT = [
 ];
 let G, pos = new Map();
 const nm = c => G.names.get(c);
-function chain(a, b, ln) {                                   // BFS หาสถานีระหว่างจุดยึด เพื่อจัดวางบนแผนที่
+function chain(a, b, ln) {                                   // BFS to find stations between anchor points for map layout
   const prev = new Map([[a, null]]), q = [a];
   for (let i = 0; i < q.length && !prev.has(b); i++)
     for (const e of G.adj.get(q[i]) || []) if (e.kind === 'ride' && e.line === ln && !prev.has(e.to)) { prev.set(e.to, q[i]); q.push(e.to); }
@@ -337,7 +353,7 @@ function layout() {
     const p = chain(A[k][0], A[k + 1][0], ln); if (!p) continue;
     p.forEach((c, i) => { const t = i / (p.length - 1 || 1); pos.set(c, [A[k][1] + (A[k + 1][1] - A[k][1]) * t, A[k][2] + (A[k + 1][2] - A[k][2]) * t]); });
   }
-  const miss = [...G.lines.keys()].filter(c => !pos.has(c));  // สถานีที่ไม่รู้ตำแหน่ง (CSV อื่น) วางเป็นวงรอบนอก
+  const miss = [...G.lines.keys()].filter(c => !pos.has(c));  // Stations with unknown positions (other CSVs) are placed in an outer circle
   miss.forEach((c, i) => { const a = i / miss.length * 6.283; pos.set(c, [400 + 370 * Math.cos(a), 310 + 285 * Math.sin(a)]); });
 }
 function drawMap(path) {
@@ -381,7 +397,7 @@ function legend() {
 function fillSelects() {
   const by = new Map();
   for (const c of G.lines.keys()) { const n = nm(c); if (!by.has(n)) by.set(n, []); by.get(n).push(c); }
-  for (const sel of [$('from'), $('to')]) {
+  for (const sel of [$('from'),$('to')]) {
     sel.innerHTML = '';
     for (const [n, cs] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) { const o = new Option(`${n} (${cs.join('/')})`, cs.join(',')); o.dataset.name = n; sel.add(o); }
   }
@@ -390,8 +406,7 @@ function fillSelects() {
 function setSel(sel, name) { const o = [...sel.options].find(o => o.dataset.name === name); if (o) sel.value = o.value; }
 const PRESETS = [['หมอชิต → บางหว้า', 'Mo Chit → Bang Wa', 'Mo Chit', 'Bang Wa'], ['สนามกีฬา → ชิดลม (ผ่านสยาม)', 'National Stadium → Chit Lom (via Siam)', 'National Stadium', 'Chit Lom'], ['อโศก → ศาลาแดง', 'Asok → Sala Daeng', 'Asok', 'Sala Daeng'], ['เคหะ → ลักสอง', 'Kheha → Lak Song', 'Kheha', 'Lak Song']];
 function chips() { $('chips').innerHTML = PRESETS.map((p, i) => `<button type="button" data-i="${i}">${lang === 'th' ? p[0] : p[1]}</button>`).join(''); }
-$('chips').onclick = e => { const i = e.target.dataset.i; if (i === undefined) return; setSel($('from'), PRESETS[i][2]); setSel($('to'), PRESETS[i][3]); $('form').requestSubmit(); };
-$('swap').onclick = () => { const v = $('from').value; $('from').value = $('to').value; $('to').value = v; };
+$('chips').onclick = e => { const i = e.target.dataset.i; if (i === undefined) return; setSel($('from'), PRESETS[i][2]); setSel($('to'), PRESETS[i][3]); $('form').requestSubmit(); };$('swap').onclick = () => { const v = $('from').value; $('from').value = $('to').value; $('to').value = v; };
 
 function show(r, mode, timeStr) {
   lastRes = { r, mode, timeStr };
@@ -423,7 +438,7 @@ function show(r, mode, timeStr) {
 $('form').onsubmit = e => {
   e.preventDefault();
   if ($('from').value === $('to').value) { lastRes = null; $('res').innerHTML = `<h2>${t('same')}</h2>`; $('res').hidden = false; return; }
-  const r = findRoute($('from').value.split(','), $('to').value.split(','), document.querySelector('[name=om]:checked').value);
+  const r = findRoute($('from').value.split(','),$('to').value.split(','), document.querySelector('[name=om]:checked').value);
   if (r) show(r, document.querySelector('[name=tm]:checked').value, $('time').value);
   else { lastRes = null; $('res').innerHTML = `<h2>${t('none')}</h2>`; $('res').hidden = false; }
 };
@@ -432,20 +447,17 @@ function load(text) {
   lastRes = null; texts();
 }
 function texts() {
-  $('status').textContent = t('status', G.rows, G.lines.size);
-  $('note').textContent = t('note', RIDE, WALK, SIAM) + (G.skipped.size ? t('skip', [...G.skipped].join(', ')) : '');
+  $('status').textContent = t('status', G.rows, G.lines.size);$('note').textContent = t('note', RIDE, WALK, SIAM) + (G.skipped.size ? t('skip', [...G.skipped].join(', ')) : '');
 }
 function setLang(l) {
   lang = l; try { localStorage.setItem('lang', l); } catch (e) {}
-  document.documentElement.lang = l; $('lang').textContent = t('lbl'); $('swap').title = t('swap');
+  document.documentElement.lang = l; $('lang').textContent = t('lbl');$('swap').title = t('swap');
   document.querySelectorAll('[data-i]').forEach(el => { if (el.dataset.i in D[l]) el.textContent = t(el.dataset.i); });
   chips(); if (G) { legend(); texts(); }
   if (lastRes && !$('res').hidden) show(lastRes.r, lastRes.mode, lastRes.timeStr);
 }
-function setNow() { const d = new Date(); $('time').value = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
-$('now').onclick = setNow;
-$('lang').onclick = () => setLang(lang === 'th' ? 'en' : 'th');
-$('file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { load(await f.text()); } catch (err) { alert(t('err') + err.message); } };
+function setNow() { const d = new Date(); $('time').value = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }$('now').onclick = setNow;
+$('lang').onclick = () => setLang(lang === 'th' ? 'en' : 'th');$('file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { load(await f.text()); } catch (err) { alert(t('err') + err.message); } };
 setNow(); setLang(lang); load($('csvData').textContent); setLang(lang);
 </script>
 </body>
