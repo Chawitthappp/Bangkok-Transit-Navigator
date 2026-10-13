@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Bangkok Transit Navigator</title>
+<title>Bangkok Transit Dashboard & Network Graph</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<!-- โหลดไลบรารี Vis.js สำหรับวาดกราฟเครือข่าย -->
+<script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <style>
 :root{--bg:#eef2f7;--card:#fff;--txt:#152033;--mut:#64748b;--bd:#e2e8f0;--soft:#f1f5f9;--pri:#2563eb;--svgbg:#f8fafc;--lbl:#1e293b;--halo:#fff;--sh:0 12px 32px -14px rgba(15,23,42,.3);--f:'Noto Sans Thai','Segoe UI',Tahoma,sans-serif}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1218;--card:#172029;--txt:#e7ecf1;--mut:#94a3b8;--bd:#263340;--soft:#1f2b36;--svgbg:#111820;--lbl:#e2e8f0;--halo:#111820;--pri:#5b9bff}}
@@ -19,6 +21,12 @@ body{font-family:var(--f);color:var(--txt);padding:16px;max-width:1280px;margin:
 .logo{font-size:2rem;background:#ffffff26;border-radius:14px;width:52px;height:52px;display:grid;place-items:center}
 h1{font-size:1.5rem;line-height:1.2}.brand p{opacity:.85;font-size:.85rem}
 .pill{position:relative;z-index:1;background:#ffffff26;backdrop-filter:blur(6px);border-radius:99px;padding:6px 14px;font-size:.78rem}
+
+/* Mode Switcher Tabs */
+.mode-switcher{display:flex;gap:8px;background:rgba(0,0,0,0.2);padding:4px;border-radius:99px;position:relative;z-index:1}
+.mode-btn{background:transparent;border:0;color:#fff;padding:6px 14px;border-radius:99px;font:700 .82rem var(--f);cursor:pointer;transition:.2s}
+.mode-btn.active{background:#fff;color:#2563eb;box-shadow:0 4px 12px rgba(0,0,0,.15)}
+
 .grid{display:grid;grid-template-columns:minmax(320px,400px) 1fr;gap:16px;align-items:start}
 @media(max-width:960px){.grid{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:18px;box-shadow:var(--sh);margin-bottom:16px}
@@ -65,36 +73,42 @@ svg text{font:600 11px var(--f);fill:var(--lbl);paint-order:stroke;stroke:var(--
 .foot{font-size:.78rem;color:var(--mut);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .foot label{cursor:pointer;color:var(--pri);font-weight:700}
 
-/* ===== Add CSS for Marquee ===== */
-@keyframes marquee {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
-}
-.scroll-text {
-  display: inline-block;
-  white-space: nowrap;
-  animation: marquee 8s linear infinite; /* Adjust speed here (8s) */
-}
-.scroll-container {
-  overflow: hidden;
-  max-width: 250px; /* Limit width to prevent text from overflowing */
+/* Vis.js Network Graph Container Styles */
+#network-view { display: none; }
+#mynetwork {
+    width: 100%;
+    height: 70vh;
+    background-color: var(--svgbg);
+    border-radius: 14px;
+    border: 1px solid var(--bd);
 }
 </style>
 </head>
 <body>
 <header class="hero">
-  <!-- ===== Edit HTML here by adding scroll-container and scroll-text classes ===== -->
-  <div class="brand"><div class="logo">🚇</div><div class="scroll-container"><h1 class="scroll-text">Bangkok Transit Navigator</h1><p data-i="sub"></p></div></div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;position:relative;z-index:1"><button type="button" class="pill" id="lang" style="border:0;color:#fff;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700">EN</button><div class="pill" id="status">…</div></div>
+  <div class="brand">
+    <div class="logo">🚇</div>
+    <div><h1>Bangkok Transit Navigator</h1><p data-i="sub"></p></div>
+  </div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;position:relative;z-index:1">
+    <!-- ปุ่มสลับโหมดการแสดงผล (Tab Navigation) -->
+    <div class="mode-switcher">
+      <button type="button" class="mode-btn active" id="btn-navigator" onclick="switchMode('navigator')">🧭 Navigator</button>
+      <button type="button" class="mode-btn" id="btn-graph" onclick="switchMode('graph')">🌐 Network Graph</button>
+    </div>
+    <button type="button" class="pill" id="lang" style="border:0;color:#fff;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700">EN</button>
+    <div class="pill" id="status">…</div>
+  </div>
 </header>
 
-<main class="grid">
+<!-- MODE 1: NAVIGATOR VIEW -->
+<main class="grid" id="navigator-view">
   <section>
     <form class="card" id="form">
       <h2 data-i="plan"></h2>
       <div class="od">
         <label class="t" for="from" data-i="from"></label><select id="from"></select>
-        <button type="button" class="swap" id="swap" >⇅</button>
+        <button type="button" class="swap" id="swap">⇅</button>
         <label class="t" for="to" data-i="to"></label><select id="to"></select>
       </div>
       <label class="t" data-i="tmode"></label>
@@ -116,6 +130,17 @@ svg text{font:600 11px var(--f);fill:var(--lbl);paint-order:stroke;stroke:var(--
     </div>
     <div class="card foot"><span id="note"></span><label><span data-i="loadCsv"></span><input type="file" id="file" accept=".csv,text/csv" hidden></label></div>
   </section>
+</main>
+
+<!-- MODE 2: INTERACTIVE NETWORK GRAPH VIEW -->
+<main id="network-view">
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h2>🚇 Bangkok Transit Network Graph (Vis.js Interactive Visualization)</h2>
+      <span class="pill" style="background:var(--soft);color:var(--txt)">Node & Edge Graph View</span>
+    </div>
+    <div id="mynetwork"></div>
+  </div>
 </main>
 
 <script type="text/csv" id="csvData">Source_Station_Code,Source_Station_Name,Target_Station_Code,Target_Station_Name,Edge_Type,Line_Context
@@ -222,8 +247,146 @@ N8,Mo Chit,BL12,Chatuchak Park,Interchange Connection,Interchange Link (BTS Sukh
 N9,Ha Yaek Lat Phrao,BL13,Phahon Yothin,Interchange Connection,Interchange Link (BTS Sukhumvit <-> MRT Blue)
 S12,Bang Wa,BL33,Bang Wa,Interchange Connection,Interchange Link (BTS Silom <-> MRT Blue)
 BL09,Tao Poon,PP16,Tao Poon,Interchange Connection,Interchange Link (MRT Blue <-> MRT Purple)</script>
+
 <script>
-// ===== 1. Min-Heap Priority Queue (Hand-written) =====
+// Switch Mode Function (Navigator vs Graph)
+let networkInitialized = false;
+function switchMode(mode) {
+    document.getElementById('btn-navigator').classList.toggle('active', mode === 'navigator');
+    document.getElementById('btn-graph').classList.toggle('active', mode === 'graph');
+    
+    document.getElementById('navigator-view').style.display = mode === 'navigator' ? 'grid' : 'none';
+    document.getElementById('network-view').style.display = mode === 'graph' ? 'block' : 'none';
+
+    if (mode === 'graph' && !networkInitialized) {
+        buildAndDrawVisGraph(document.getElementById('csvData').textContent);
+        networkInitialized = true;
+    }
+}
+
+// Vis.js Network Graph Engine
+function buildAndDrawVisGraph(csvText) {
+    const lines = csvText.trim().split('\n');
+    const nodes = new vis.DataSet();
+    const edges = new vis.DataSet();
+    const addedNodes = new Set();
+
+    for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(',');
+        if (row.length < 6) continue;
+
+        const srcCode = row[0].trim();
+        const srcName = row[1].trim();
+        const tgtCode = row[2].trim();
+        const tgtName = row[3].trim();
+        const edgeType = row[4].trim();
+        const lineCtx = row[5].trim();
+
+        if (srcCode === "PP16" || tgtCode === "PP16") continue;
+
+        if (!addedNodes.has(srcCode)) {
+            nodes.add({ 
+                id: srcCode, 
+                label: srcName + '\n(' + srcCode + ')', 
+                shape: 'dot', 
+                size: 8, 
+                color: '#3b82f6', 
+                font: {color: '#94a3b8', size: 11} 
+            });
+            addedNodes.add(srcCode);
+        }
+        if (!addedNodes.has(tgtCode)) {
+            nodes.add({ 
+                id: tgtCode, 
+                label: tgtName + '\n(' + tgtCode + ')', 
+                shape: 'dot', 
+                size: 8, 
+                color: '#3b82f6', 
+                font: {color: '#94a3b8', size: 11} 
+            });
+            addedNodes.add(tgtCode);
+        }
+
+        let edgeColor = "#64748b";
+        if (lineCtx.includes("Sukhumvit")) edgeColor = "#7ac142";
+        else if (lineCtx.includes("Silom")) edgeColor = "#00796b";
+        else if (lineCtx.includes("Blue")) edgeColor = "#1e5bb8";
+
+        if (srcCode !== tgtCode) {
+            edges.add({
+                from: srcCode,
+                to: tgtCode,
+                color: edgeColor,
+                width: 3,
+                dashes: edgeType.includes("Interchange") 
+            });
+        }
+    }
+
+    const container = document.getElementById('mynetwork');
+    const data = { nodes: nodes, edges: edges };
+    const options = {
+        physics: {
+            stabilization: false,
+            barnesHut: {
+                gravitationalConstant: -2500,
+                springConstant: 0.04,
+                springLength: 140
+            }
+        },
+        interaction: { hover: true }
+    };
+
+    new vis.Network(container, data, options);
+}
+
+// ==========================================
+// GRAPH ADT & DIJKSTRA ENGINE
+// ==========================================
+class Vertex {
+  constructor(code, name) {
+    this.code = code;
+    this.name = name;
+    this.lines = new Set();
+  }
+}
+
+class Edge {
+  constructor(source, target, lineContext, edgeType, weight) {
+    this.source = source;
+    this.to = target;
+    this.line = lineContext;
+    this.kind = edgeType;
+    this.cost = weight;
+  }
+}
+
+class GraphADT {
+  constructor() {
+    this.vertices = new Map();
+    this.adj = new Map();
+    this.names = new Map();
+    this.lines = new Map();
+    this.plat = new Map();
+    this.skipped = new Set();
+    this.rows = 0;
+  }
+
+  addVertex(code, name) {
+    if (!this.vertices.has(code)) {
+      this.vertices.set(code, new Vertex(code, name));
+      this.adj.set(code, []);
+    }
+    this.names.set(code, name);
+  }
+
+  addEdge(source, target, lineContext, edgeType, weight) {
+    const edge = new Edge(source, target, lineContext, edgeType, weight);
+    if (!this.adj.has(source)) this.adj.set(source, []);
+    this.adj.get(source).push(edge);
+  }
+}
+
 class PQ {
   constructor(cmp) { this.h = []; this.c = cmp; }
   get size() { return this.h.length; }
@@ -248,8 +411,7 @@ class PQ {
   }
 }
 
-// ===== 2. CSV -> Graph (Adjacency List, Vertex = Station Code) =====
-const RIDE = 2.5, WALK = 5, SIAM = 3;   // Minutes: Ride / Interchange walk / Siam platform change
+const RIDE = 2.5, WALK = 5, SIAM = 3;
 function parseCSV(t) {
   const rows = []; let r = [], c = '', q = false;
   for (let i = 0; i < t.length; i++) {
@@ -263,61 +425,104 @@ function parseCSV(t) {
   if (c || r.length) { r.push(c); rows.push(r); }
   return rows;
 }
+
 function buildGraph(text) {
   const rows = parseCSV(text.replace(/^\uFEFF/, '')).slice(1).filter(r => r.length >= 6);
-  const G = { names: new Map(), lines: new Map(), adj: new Map(), plat: new Map(), skipped: new Set(), rows: rows.length };
-  const add = (u, e) => { if (!G.adj.has(u)) G.adj.set(u, []); G.adj.get(u).push(e); };
+  const G = new GraphADT();
+  G.rows = rows.length;
   const seen = new Set(), links = [];
+
   for (const raw of rows) {
     const [a, an, b, bn, type, ctx] = raw.map(x => x.trim());
-    G.names.set(a, an); G.names.set(b, bn);
+    G.addVertex(a, an);
+    G.addVertex(b, bn);
+
     if (type === 'Line Track') {
-      const ln = ctx.replace(/ Branch$/, '');            // Blue Line branch = same line, no transfer penalty
-      for (const c of [a, b]) { if (!G.lines.has(c)) G.lines.set(c, new Set()); G.lines.get(c).add(ln); }
-      const k = [a, b].sort().join('|') + ln; if (seen.has(k)) continue; seen.add(k);
-      add(a, { to: b, line: ln, cost: RIDE, kind: 'ride' }); add(b, { to: a, line: ln, cost: RIDE, kind: 'ride' });
-    } else links.push([a, b]);
+      const ln = ctx.replace(/ Branch$/, '');
+      if (!G.lines.has(a)) G.lines.set(a, new Set());
+      if (!G.lines.has(b)) G.lines.set(b, new Set());
+      G.lines.get(a).add(ln);
+      G.lines.get(b).add(ln);
+
+      const k = [a, b].sort().join('|') + ln;
+      if (seen.has(k)) continue;
+      seen.add(k);
+
+      G.addEdge(a, b, ln, 'ride', RIDE);
+      G.addEdge(b, a, ln, 'ride', RIDE);
+    } else {
+      links.push([a, b]);
+    }
   }
+
   for (const [a, b] of links) {
-    if (!G.lines.has(a) || !G.lines.has(b)) { G.skipped.add(G.lines.has(a) ? b : a); continue; }  // e.g., PP16 (no Purple line in data)
-    if (a === b) G.plat.set(a, SIAM);                     // Siam Gotcha: Same code, but takes time to cross platform
-    else { add(a, { to: b, cost: WALK, kind: 'walk' }); add(b, { to: a, cost: WALK, kind: 'walk' }); }
+    if (!G.lines.has(a) || !G.lines.has(b)) {
+      G.skipped.add(G.lines.has(a) ? b : a);
+      continue;
+    }
+    if (a === b) {
+      G.plat.set(a, SIAM);
+    } else {
+      G.addEdge(a, b, 'walk', 'walk', WALK);
+      G.addEdge(b, a, 'walk', 'walk', WALK);
+    }
   }
   return G;
 }
 
-// ===== 3. Dijkstra on state (Station, Line) =====
 function findRoute(starts, ends, mode) {
   const fewest = mode === 'fewest';
   const cmp = fewest ? (a, b) => a.tr - b.tr || a.t - b.t : (a, b) => a.t - b.t || a.tr - b.tr;
   const pq = new PQ(cmp), dist = new Map();
+
   const relax = (c, l, t, tr, prev, kind, cost) => {
     const k = c + '|' + l, o = dist.get(k), n = { c, l, t, tr, prev, kind, cost };
     if (!o || cmp(n, o) < 0) { dist.set(k, n); pq.push(n); }
   };
-  for (const s of starts) for (const l of G.lines.get(s)) relax(s, l, 0, 0, null, 'start', 0);
+
+  for (const s of starts) {
+    if (G.lines.has(s)) {
+      for (const l of G.lines.get(s)) relax(s, l, 0, 0, null, 'start', 0);
+    }
+  }
+
   while (pq.size) {
     const u = pq.pop();
-    if (dist.get(u.c + '|' + u.l) !== u) continue;        // Skip outdated data in queue
-    if (ends.includes(u.c)) { const p = []; for (let n = u; n; n = n.prev) p.push(n); return { t: u.t, tr: u.tr, path: p.reverse() }; }
-    for (const e of G.adj.get(u.c) || []) {
-      if (e.kind === 'ride') { if (e.line === u.l) relax(e.to, u.l, u.t + e.cost, u.tr, u, 'ride', e.cost); }
-      else for (const l of G.lines.get(e.to)) relax(e.to, l, u.t + e.cost, u.tr + 1, u, 'walk', e.cost);
+    if (dist.get(u.c + '|' + u.l) !== u) continue;
+    if (ends.includes(u.c)) {
+      const p = []; for (let n = u; n; n = n.prev) p.push(n);
+      return { t: u.t, tr: u.tr, path: p.reverse() };
     }
-    const pc = G.plat.get(u.c) ?? WALK;                   // In-station transfer always incurs a cost (not 0)
-    for (const l of G.lines.get(u.c)) if (l !== u.l) relax(u.c, l, u.t + pc, u.tr + 1, u, 'platform', pc);
+
+    for (const e of G.adj.get(u.c) || []) {
+      if (e.kind === 'ride') {
+        if (e.line === u.l) relax(e.to, u.l, u.t + e.cost, u.tr, u, 'ride', e.cost);
+      } else {
+        if (G.lines.has(e.to)) {
+          for (const l of G.lines.get(e.to)) {
+            relax(e.to, l, u.t + e.cost, u.tr + 1, u, 'walk', e.cost);
+          }
+        }
+      }
+    }
+
+    const pc = G.plat.get(u.c) ?? WALK;
+    if (G.lines.has(u.c)) {
+      for (const l of G.lines.get(u.c)) {
+        if (l !== u.l) relax(u.c, l, u.t + pc, u.tr + 1, u, 'platform', pc);
+      }
+    }
   }
   return null;
 }
 
-// ===== i18n (Thai / English) =====
 const D = {
-  th: { now: 'ตอนนี้', sub: 'ค้นหาเส้นทาง BTS · MRT ด้วย Dijkstra และ Priority Queue ที่เขียนเอง', plan: 'วางแผนการเดินทาง', from: 'ต้นทาง', to: 'ปลายทาง', tmode: 'โหมดเวลา', depart: 'ออกเดินทางเวลา', arrive: 'ต้องถึงภายใน', time: 'เวลา', omode: 'รูปแบบเส้นทาง', fastest: '⚡ เร็วที่สุด', fewest: '🔁 เปลี่ยนสายน้อยสุด', go: 'ค้นหาเส้นทาง', mapTitle: 'แผนที่เครือข่ายรถไฟฟ้า', loadCsv: '📂 โหลดไฟล์ CSV อื่น', swap: 'สลับต้นทาง/ปลายทาง',
+  th: { now: 'ตอนนี้', sub: 'ค้นหาเส้นทาง BTS · MRT และดูแผนภาพ Network Graph แบบอินเทอร์แอกทีฟ', plan: 'วางแผนการเดินทาง', from: 'ต้นทาง', to: 'ปลายทาง', tmode: 'โหมดเวลา', depart: 'ออกเดินทางเวลา', arrive: 'ต้องถึงภายใน', time: 'เวลา', omode: 'รูปแบบเส้นทาง', fastest: '⚡ เร็วที่สุด', fewest: '🔁 เปลี่ยนสายน้อยสุด', go: 'ค้นหาเส้นทาง', mapTitle: 'แผนที่เครือข่ายรถไฟฟ้า', loadCsv: '📂 โหลดไฟล์ CSV อื่น', swap: 'สลับต้นทาง/ปลายทาง',
     status: (r, n) => `CSV ${r} แถว · ${n} สถานี`, note: (a, b, c) => `ค่าน้ำหนัก: นั่งรถ ${a} นาที/สถานี · เดินเปลี่ยนสาย ${b} นาที · เปลี่ยนที่สยาม ${c} นาที`, skip: s => ` · ข้ามจุดเชื่อม ${s} (ไม่มีสายในข้อมูล)`,
     rec: 'เส้นทางที่แนะนำ', dep: 'ออกเดินทาง', arr: 'ถึงปลายทาง', dur: 'ใช้เวลา', tr: n => `เปลี่ยนสาย · ${n} สถานี`, leg: (n, m) => `${n} สถานี · ${m} นาที`,
     plat: (n, c, l, m) => `🔁 เปลี่ยนชานชาลาที่ <b>${n}</b> (${c}) ไป ${l} · ${m} นาที`, walk: (a, ac, b, bc, m) => `🚶 เดินจาก <b>${a}</b> (${ac}) ไป <b>${b}</b> (${bc}) · ${m} นาที`,
     same: 'ต้นทางและปลายทางต้องต่างกัน', none: 'ไม่พบเส้นทาง', err: 'อ่านไฟล์ CSV ไม่สำเร็จ: ', lwalk: 'เดินเปลี่ยนสาย', lsel: 'เส้นทางที่เลือก', lbl: 'EN' },
-  en: { now: 'Now', sub: 'BTS · MRT route finder powered by a hand-written Dijkstra & Priority Queue', plan: 'Plan your trip', from: 'From', to: 'To', tmode: 'Time mode', depart: 'Depart at', arrive: 'Arrive by', time: 'Time', omode: 'Route preference', fastest: '⚡ Fastest', fewest: '🔁 Fewest interchanges', go: 'Find route', mapTitle: 'Rail network map', loadCsv: '📂 Load another CSV', swap: 'Swap origin / destination',
+  en: { now: 'Now', sub: 'BTS · MRT route finder & interactive network graph visualization', plan: 'Plan your trip', from: 'From', to: 'To', tmode: 'Time mode', depart: 'Depart at', arrive: 'Arrive by', time: 'Time', omode: 'Route preference', fastest: '⚡ Fastest', fewest: '🔁 Fewest interchanges', go: 'Find route', mapTitle: 'Rail network map', loadCsv: '📂 Load another CSV', swap: 'Swap origin / destination',
     status: (r, n) => `CSV ${r} rows · ${n} stations`, note: (a, b, c) => `Weights: ride ${a} min/stop · interchange walk ${b} min · Siam platform change ${c} min`, skip: s => ` · skipped link ${s} (line not in data)`,
     rec: 'Recommended route', dep: 'Depart', arr: 'Arrive', dur: 'Duration', tr: n => `Transfers · ${n} stops`, leg: (n, m) => `${n} ${n === 1 ? 'stop' : 'stops'} · ${m} min`,
     plat: (n, c, l, m) => `🔁 Change platform at <b>${n}</b> (${c}) to ${l} · ${m} min`, walk: (a, ac, b, bc, m) => `🚶 Walk from <b>${a}</b> (${ac}) to <b>${b}</b> (${bc}) · ${m} min`,
@@ -327,7 +532,6 @@ let lang = 'th', lastRes = null;
 try { lang = localStorage.getItem('lang') || 'th'; } catch (e) {}
 const t = (k, ...a) => { const v = D[lang][k]; return typeof v === 'function' ? v(...a) : v; };
 
-// ===== 4. UI + Map =====
 const $ = id => document.getElementById(id);
 const COL = { 'BTS Sukhumvit Line': '#7ac142', 'BTS Silom Line': '#00796b', 'MRT Blue Line': '#1e5bb8' };
 const col = l => COL[l] || '#9333ea';
@@ -339,13 +543,15 @@ const LAYOUT = [
 ];
 let G, pos = new Map();
 const nm = c => G.names.get(c);
-function chain(a, b, ln) {                                   // BFS to find stations between anchor points for map layout
+
+function chain(a, b, ln) {
   const prev = new Map([[a, null]]), q = [a];
   for (let i = 0; i < q.length && !prev.has(b); i++)
     for (const e of G.adj.get(q[i]) || []) if (e.kind === 'ride' && e.line === ln && !prev.has(e.to)) { prev.set(e.to, q[i]); q.push(e.to); }
   if (!prev.has(b)) return null;
   const p = []; for (let c = b; c !== null; c = prev.get(c)) p.push(c); return p.reverse();
 }
+
 function layout() {
   pos = new Map();
   for (const [ln, A] of LAYOUT) for (let k = 0; k < A.length - 1; k++) {
@@ -353,14 +559,16 @@ function layout() {
     const p = chain(A[k][0], A[k + 1][0], ln); if (!p) continue;
     p.forEach((c, i) => { const t = i / (p.length - 1 || 1); pos.set(c, [A[k][1] + (A[k + 1][1] - A[k][1]) * t, A[k][2] + (A[k + 1][2] - A[k][2]) * t]); });
   }
-  const miss = [...G.lines.keys()].filter(c => !pos.has(c));  // Stations with unknown positions (other CSVs) are placed in an outer circle
+  const miss = [...G.lines.keys()].filter(c => !pos.has(c));
   miss.forEach((c, i) => { const a = i / miss.length * 6.283; pos.set(c, [400 + 370 * Math.cos(a), 310 + 285 * Math.sin(a)]); });
 }
+
 function drawMap(path) {
   let h = '';
   const dim = path ? .28 : 1, seen = new Set(), P = c => pos.get(c);
   for (const [u, es] of G.adj) for (const e of es) {
     const k = [u, e.to].sort().join('|') + (e.line || 'w'); if (seen.has(k)) continue; seen.add(k);
+    if (!P(u) || !P(e.to)) continue;
     const [x1, y1] = P(u), [x2, y2] = P(e.to);
     h += e.kind === 'ride'
       ? `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col(e.line)}" stroke-width="7" stroke-linecap="round" opacity="${dim}"/>`
@@ -371,6 +579,7 @@ function drawMap(path) {
     let seg = '';
     path.forEach((n, i) => {
       on.add(n.c); if (!i || n.c === path[i - 1].c) return;
+      if (!P(path[i - 1].c) || !P(n.c)) return;
       const [x1, y1] = P(path[i - 1].c), [x2, y2] = P(n.c), ride = n.kind === 'ride';
       seg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${ride ? col(n.l) : '#f59e0b'}" stroke-width="${ride ? 11 : 7}" stroke-linecap="round" ${ride ? '' : 'stroke-dasharray="8 6"'}/>`;
     });
@@ -384,16 +593,19 @@ function drawMap(path) {
     if (hit || (!path && big)) h += `<text x="${x + 10}" y="${y - 9}">${nm(c)}</text>`;
   }
   for (const [c, t, bg] of path ? [[first, 'A', '#16a34a'], [last, 'B', '#e11d48']] : []) {
+    if (!P(c)) continue;
     const [x, y] = P(c);
     h += `<g class="pin"><circle cx="${x}" cy="${y}" r="13" fill="${bg}" stroke="#fff" stroke-width="3"/><text x="${x}" y="${y + 4}" text-anchor="middle" style="fill:#fff;stroke:none;font-size:12px">${t}</text></g>`;
   }
   $('map').innerHTML = h;
 }
+
 function legend() {
   const ls = new Set(); for (const s of G.lines.values()) s.forEach(l => ls.add(l));
   $('legend').innerHTML = [...ls].map(l => `<span><i style="background:${col(l)}"></i>${l}</span>`).join('') +
     `<span><i style="background:repeating-linear-gradient(90deg,#94a3b8 0 5px,transparent 5px 9px);height:3px"></i>${t('lwalk')}</span><span><i style="background:#f59e0b"></i>${t('lsel')}</span>`;
 }
+
 function fillSelects() {
   const by = new Map();
   for (const c of G.lines.keys()) { const n = nm(c); if (!by.has(n)) by.set(n, []); by.get(n).push(c); }
@@ -403,6 +615,7 @@ function fillSelects() {
   }
   setSel($('from'), 'Mo Chit'); setSel($('to'), 'Bang Wa');
 }
+
 function setSel(sel, name) { const o = [...sel.options].find(o => o.dataset.name === name); if (o) sel.value = o.value; }
 const PRESETS = [['หมอชิต → บางหว้า', 'Mo Chit → Bang Wa', 'Mo Chit', 'Bang Wa'], ['สนามกีฬา → ชิดลม (ผ่านสยาม)', 'National Stadium → Chit Lom (via Siam)', 'National Stadium', 'Chit Lom'], ['อโศก → ศาลาแดง', 'Asok → Sala Daeng', 'Asok', 'Sala Daeng'], ['เคหะ → ลักสอง', 'Kheha → Lak Song', 'Kheha', 'Lak Song']];
 function chips() { $('chips').innerHTML = PRESETS.map((p, i) => `<button type="button" data-i="${i}">${lang === 'th' ? p[0] : p[1]}</button>`).join(''); }
@@ -435,6 +648,7 @@ function show(r, mode, timeStr) {
   $('res').innerHTML = h; $('res').hidden = false; $('res').style.animation = 'none'; $('res').offsetHeight; $('res').style.animation = '';
   drawMap(P);
 }
+
 $('form').onsubmit = e => {
   e.preventDefault();
   if ($('from').value === $('to').value) { lastRes = null; $('res').innerHTML = `<h2>${t('same')}</h2>`; $('res').hidden = false; return; }
@@ -442,13 +656,16 @@ $('form').onsubmit = e => {
   if (r) show(r, document.querySelector('[name=tm]:checked').value, $('time').value);
   else { lastRes = null; $('res').innerHTML = `<h2>${t('none')}</h2>`; $('res').hidden = false; }
 };
+
 function load(text) {
   G = buildGraph(text); layout(); fillSelects(); legend(); drawMap(null); $('res').hidden = true;
   lastRes = null; texts();
 }
+
 function texts() {
   $('status').textContent = t('status', G.rows, G.lines.size);$('note').textContent = t('note', RIDE, WALK, SIAM) + (G.skipped.size ? t('skip', [...G.skipped].join(', ')) : '');
 }
+
 function setLang(l) {
   lang = l; try { localStorage.setItem('lang', l); } catch (e) {}
   document.documentElement.lang = l; $('lang').textContent = t('lbl');$('swap').title = t('swap');
@@ -456,9 +673,12 @@ function setLang(l) {
   chips(); if (G) { legend(); texts(); }
   if (lastRes && !$('res').hidden) show(lastRes.r, lastRes.mode, lastRes.timeStr);
 }
+
 function setNow() { const d = new Date(); $('time').value = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }$('now').onclick = setNow;
-$('lang').onclick = () => setLang(lang === 'th' ? 'en' : 'th');$('file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { load(await f.text()); } catch (err) { alert(t('err') + err.message); } };
+$('lang').onclick = () => setLang(lang === 'th' ? 'en' : 'th');$('file').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { load(await f.text()); networkInitialized = false; } catch (err) { alert(t('err') + err.message); } };
+
 setNow(); setLang(lang); load($('csvData').textContent); setLang(lang);
 </script>
 </body>
 </html>
+```eof
